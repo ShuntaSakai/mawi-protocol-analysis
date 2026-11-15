@@ -17,6 +17,7 @@ notebook = ["pandas>=2", "matplotlib>=3.8", "notebook>=7"]
 mawi-protocol-analysis = "mawi_protocol_analysis.cli:main"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 packages = ["mawi_protocol_analysis"]
 
 [tool.setuptools.dynamic]

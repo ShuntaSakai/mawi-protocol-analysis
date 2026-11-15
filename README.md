@@ -4,17 +4,17 @@ MAWIのバックボーントラフィックを対象に、TCP/UDPに限定する
 
 ## 実行方法
 
-Python 3.10 以上が必要です。解析時の外部依存はありません。
+Python 3.10 以上が必要です。パッケージは `src/mawi_protocol_analysis/` にあります。リポジトリのルートで編集可能インストールを行ってください。解析時の外部依存はありません。
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install .
+python -m pip install -e .
 mawi-protocol-analysis /path/to/202604081400.pcap.gz
 python -m unittest discover -s tests -v
 ```
 
-インストールせずに、リポジトリのルートで `python3 -m mawi_protocol_analysis /path/to/202604081400.pcap` と実行することもできます。入力は classic Ethernet PCAP（2.4、非圧縮または gzip）です。PCAPを1レコードずつ読み、パケット一覧や中間CSVは保存しません。マイクロ秒とナノ秒、リトルエンディアンとビッグエンディアンに対応します。Unix時刻で比較し、出力には JST を明記します。
+インストール後は `python -m mawi_protocol_analysis /path/to/202604081400.pcap` と実行することもできます。入力は classic Ethernet PCAP（2.4、非圧縮または gzip）です。PCAPを1レコードずつ読み、パケット一覧や中間CSVは保存しません。マイクロ秒とナノ秒、リトルエンディアンとビッグエンディアンに対応します。Unix時刻で比較し、出力には JST を明記します。
 
 ## 出力
 
@@ -47,7 +47,7 @@ Ethernet II と VLAN タグ（0x8100、0x88a8、0x9100）を読み、IPv4は外�
 仮想環境を有効にして、リポジトリのルートで次を実行します。
 
 ```sh
-python -m pip install '.[notebook]'
+python -m pip install -e '.[notebook]'
 jupyter notebook notebook/01_overall_protocol_distribution.ipynb
 ```
 
