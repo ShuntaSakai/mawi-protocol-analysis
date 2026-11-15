@@ -41,3 +41,18 @@ Ethernet II と VLAN タグ（0x8100、0x88a8、0x9100）を読み、IPv4は外�
 対象外の時刻や、不正なレコードは除外理由を記録します。読み切れないレコードや未対応のファイル形式では、解析を中断します。キャプチャされたヘッダで判定できない場合は、その理由と取得できた通信量を保持します。IPv6 Jumbo Payload、その他の未対応拡張ヘッダ、Ethernet IEEE 802.3 LLC/SNAPには対応しません。トランスポートヘッダの妥当性やチェックサムは検証しません。
 
 公開統計の `frag` は独立行であり、本実装とは分類方法に差があります。MAWI公式統計やAguriのバイト数と直接比較する際は、使用したツールと設定で集計対象・バイト定義が一致することを確認してください。この観測区間の結果を、MAWI全期間やインターネット全体には一般化しません。
+
+## Jupyter Notebook で可視化
+
+仮想環境を有効にして、リポジトリのルートで次を実行します。
+
+```sh
+python -m pip install '.[notebook]'
+jupyter notebook notebook/01_overall_protocol_distribution.ipynb
+```
+
+[Notebook](notebook/01_overall_protocol_distribution.ipynb) は Task 1 の CSV 2ファイルと JSON 2ファイルを `results/202604081400/` から読み込みます。別の場所にある場合は冒頭の `RESULTS_DIR` を変更してください。設定セルを編集したあと、カーネルを再起動して全セルを上から実行します。
+
+冒頭で対象IPバージョン、表示するプロトコル番号、Others の閾値、並べ替え、時系列の構成比指標、図のサイズを変更できます。`BYTE_METRIC` の既定値は PCAP の元フレーム長（`original_frame_bytes`）です。`ip_packet_bytes` に切り替えると、取得できたIP長の合計を使います。人工データで実行する際は、図と概要の `DATA_LABEL` に出典を明記します。
+
+画像を保存する場合は `SAVE_FIGURES = True` に設定します。結果ディレクトリ内の `figures/` に4枚のPNGを保存します。Notebookの検証は、可視化用の依存関係を入れた環境で `python -m unittest discover -s tests -v` を実行します。

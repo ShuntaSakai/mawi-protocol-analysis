@@ -5,6 +5,8 @@
 *.cap
 *.cap.*
 /results/
+.ipynb_checkpoints/
+figures/
 .venv/
 venv/
 __pycache__/
