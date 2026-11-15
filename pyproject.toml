@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mawi-protocol-analysis"
+dynamic = ["version"]
+description = "Streaming IP protocol statistics for a MAWI Samplepoint-F trace"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+mawi-protocol-analysis = "mawi_protocol_analysis.cli:main"
+
+[tool.setuptools]
+packages = ["mawi_protocol_analysis"]
+
+[tool.setuptools.dynamic]
+version = {attr = "mawi_protocol_analysis.__version__"}
