@@ -4,17 +4,21 @@ MAWIのバックボーントラフィックを対象に、TCP/UDPに限定する
 
 ## 実行方法
 
-Python 3.10 以上が必要です。パッケージは `src/mawi_protocol_analysis/` にあります。リポジトリのルートで編集可能インストールを行ってください。解析時の外部依存はありません。
+Python 環境は uv で管理します。macOS と Linux では公式インストーラを使えます。macOS で Homebrew を利用している場合は `brew install uv` でも導入できます。[uv のインストール方法](https://docs.astral.sh/uv/getting-started/installation/)
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-mawi-protocol-analysis /path/to/202604081400.pcap.gz
-python -m unittest discover -s tests -v
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-インストール後は `python -m mawi_protocol_analysis /path/to/202604081400.pcap` と実行することもできます。入力は classic Ethernet PCAP（2.4、非圧縮または gzip）です。PCAPを1レコードずつ読み、パケット一覧や中間CSVは保存しません。マイクロ秒とナノ秒、リトルエンディアンとビッグエンディアンに対応します。Unix時刻で比較し、出力には JST を明記します。
+リポジトリのルートで `uv sync --locked` を実行すると、`.python-version` で指定した Python 3.12 の仮想環境 `.venv` が作成され、`uv.lock` に従って解析パッケージがインストールされます。解析時の外部依存はありません。`uv run` が仮想環境を使うため、通常は手動で有効化する必要はありません。
+
+```sh
+uv sync --locked
+uv run --locked mawi-protocol-analysis /path/to/202604081400.pcap.gz
+uv run --locked python -m unittest discover -s tests -v
+```
+
+`uv run --locked python -m mawi_protocol_analysis /path/to/202604081400.pcap` と実行することもできます。入力は classic Ethernet PCAP（2.4、非圧縮または gzip）です。PCAPを1レコードずつ読み、パケット一覧や中間CSVは保存しません。マイクロ秒とナノ秒、リトルエンディアンとビッグエンディアンに対応します。Unix時刻で比較し、出力には JST を明記します。
 
 ## 出力
 
@@ -44,15 +48,15 @@ Ethernet II と VLAN タグ（0x8100、0x88a8、0x9100）を読み、IPv4は外�
 
 ## Jupyter Notebook で可視化
 
-仮想環境を有効にして、リポジトリのルートで次を実行します。
+Notebook を使う場合は、リポジトリのルートで任意依存 `notebook` を含めて同期します。
 
 ```sh
-python -m pip install -e '.[notebook]'
-jupyter notebook notebook/01_overall_protocol_distribution.ipynb
+uv sync --locked --extra notebook
+uv run --locked --extra notebook jupyter notebook notebook/01_overall_protocol_distribution.ipynb
 ```
 
 [Notebook](notebook/01_overall_protocol_distribution.ipynb) は Task 1 の CSV 2ファイルと JSON 2ファイルを `results/202604081400/` から読み込みます。別の場所にある場合は冒頭の `RESULTS_DIR` を変更してください。設定セルを編集したあと、カーネルを再起動して全セルを上から実行します。
 
 冒頭で対象IPバージョン、表示するプロトコル番号、Others の閾値、並べ替え、時系列の構成比指標、図のサイズを変更できます。`BYTE_METRIC` の既定値は PCAP の元フレーム長（`original_frame_bytes`）です。`ip_packet_bytes` に切り替えると、取得できたIP長の合計を使います。人工データで実行する際は、図と概要の `DATA_LABEL` に出典を明記します。
 
-画像を保存する場合は `SAVE_FIGURES = True` に設定します。結果ディレクトリ内の `figures/` に4枚のPNGを保存します。Notebookの検証は、可視化用の依存関係を入れた環境で `python -m unittest discover -s tests -v` を実行します。
+画像を保存する場合は `SAVE_FIGURES = True` に設定します。結果ディレクトリ内の `figures/` に4枚のPNGを保存します。Notebookを含めたテストは `uv run --locked --extra notebook python -m unittest discover -s tests -v` で実行します。
