@@ -5,10 +5,10 @@ from typing import NamedTuple
 
 # Common names from https://www.iana.org/assignments/protocol-numbers/
 PROTOCOL_NAMES = {
-    0: "HOPOPT", 1: "ICMP", 2: "IGMP", 4: "IPv4", 6: "TCP",
+    0: "HOPOPT", 1: "ICMP", 2: "IGMP", 4: "IPv4", 6: "TCP", 9: "IGP",
     17: "UDP", 41: "IPv6", 43: "IPv6-Route", 44: "IPv6-Frag",
     46: "RSVP", 47: "GRE", 50: "ESP", 51: "AH", 58: "IPv6-ICMP",
-    59: "IPv6-NoNxt", 60: "IPv6-Opts", 89: "OSPFIGP", 103: "PIM",
+    59: "IPv6-NoNxt", 60: "IPv6-Opts", 89: "OSPFIGP", 97: "ETHERIP", 103: "PIM",
     112: "VRRP", 115: "L2TP", 132: "SCTP", 136: "UDPLite",
 }
 _VLAN_TYPES = {0x8100, 0x88A8, 0x9100}
