@@ -18,13 +18,13 @@ _UNSUPPORTED_IPV6_EXTENSIONS = {135, 139, 140, 253, 254}
 
 
 class Classification(NamedTuple):
-    kind: str
-    number: int | None = None
-    ip_bytes: int | None = None
-    fragment: bool = False
-    protocol_issue: str | None = None
-    length_issue: str | None = None
-    header_issue: str | None = None
+    kind: str # "ipv4" or "ipv6" or "non_ip" or "unknown"
+    number: int | None = None # IPプロトコル番号（TCPなら6, UDPなら17）
+    ip_bytes: int | None = None # IPヘッダを含むIPパケット長
+    fragment: bool = False # 分割されたパケットだと確認できた場合はTrue
+    protocol_issue: str | None = None # IPプロトコル番号が不明な場合の理由
+    length_issue: str | None = None # IPパケット長が不正な場合の理由
+    header_issue: str | None = None # IPヘッダに問題がある場合の理由
 
 
 def _missing(kind: str, reason: str) -> Classification:
@@ -34,6 +34,7 @@ def _missing(kind: str, reason: str) -> Classification:
 def classify_ethernet(data: bytes, orig_len: int, fcs_bytes: int = 0) -> Classification:
     frame_end = orig_len - fcs_bytes
     captured_end = min(len(data), frame_end)
+    # 最低14バイトのEthernetヘッダが必要
     if captured_end < 14:
         return _missing("unknown", "ethernet_truncated_header")
     ethertype = (data[12] << 8) | data[13]
