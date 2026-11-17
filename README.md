@@ -62,3 +62,13 @@ uv run --locked --extra notebook jupyter notebook notebook/01_overall_protocol_d
 冒頭で対象IPバージョン、表示するプロトコル番号、Others の閾値、並べ替え、時系列の構成比指標、図のサイズを変更できます。`BYTE_METRIC` の既定値は PCAP の元フレーム長（`original_frame_bytes`）です。`ip_packet_bytes` に切り替えると、取得できたIP長の合計を使います。人工データで実行する際は、図と概要の `DATA_LABEL` に出典を明記します。
 
 画像を保存する場合は `SAVE_FIGURES = True` に設定します。結果ディレクトリ内の `figures/` に4枚のPNGを保存します。Notebookを含めたテストは `uv run --locked --extra notebook python -m unittest discover -s tests -v` で実行します。
+
+図2の後に、60秒×15区間のプロトコル構成比の最大・最小（%）と変動幅（最大−最小、pp）を要約表で表示します。詳細表には極値を記録した開始時刻（同率は全区間、JST）と、有効・未定義区間数を表示します。IPv4/IPv6の同番号は合算し、Others集約前の番号別で計算します。TCP・UDP・ICMP・ESP・ICMPv6・GREは未出現でも表示します。
+
+両指標を毎回算出し、バイト指標は `BYTE_METRIC` にかかわらず `original_frame_bytes`（PCAP `orig_len`）です。分母は区間ごとの選択した全IPのパケット数・元フレーム長合計で、プロトコル判定不能IPも含み、非IP・IPバージョン不明は除きます。既定の `IP_VERSION = "both"` でOverallのIPv4＋IPv6が対象です。分母0は未定義として極値から除外し、全区間未定義なら最大・最小・幅も未定義です。計算値は丸めず、表示のみ小数点以下2桁です。
+
+`SAVE_RATIO_TABLES = True` にすると、結果ディレクトリの `tables/protocol_ratio_variation_60s_<IP_VERSION>_<一意の文字列>/` に `protocol_ratio_variation_60s.csv`（要約）、`protocol_ratio_variation_60s_details.csv`（詳細）、`metadata.json`（出典・期間・母集団・指標の定義）を保存します。CSVはフル精度の数値と英語の列名を保持し、未定義値は空欄です。再実行時は新規ディレクトリを作るため、既存結果を上書きしません。
+
+番号別の表に加え、TCP（6）・UDP（17）・非TCP/UDPの3分類について、両指標の変動幅を比較するスライド用要約表と、最大・最小・極値時刻の詳細表を表示します。非TCP/UDPは、番号を判定できたIPパケットのうち6・17以外です。区間ごとのカウンタを合算してから構成比の極値を求め、個別プロトコルの変動幅は合算しません。判定不能IPは分母にのみ含まれるため、3分類の構成比の合計が100%未満になる場合があります。
+
+保存時は同じ新規ディレクトリに `category_ratio_variation_60s.csv`（3分類の最大・最小・幅）と `category_ratio_variation_60s_details.csv`（極値時刻・有効/未定義区間数）を追加し、`metadata.json` に分類の定義と追加CSV名を記録します。既存の番号別CSVの列・行は変更しません。3分類も計算・CSVはフル精度、表示だけ小数点以下2桁で、分母0は極値の対象外です。
