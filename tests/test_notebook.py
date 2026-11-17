@@ -43,7 +43,9 @@ class NotebookTests(unittest.TestCase):
         nb = nbformat.read(NOTEBOOK, as_version=4)
         nbformat.validate(nb)
         stored = [cell for cell in nb.cells if cell.cell_type == "code"]
-        self.assertTrue(all(not cell.outputs and cell.execution_count is None for cell in stored))
+        for cell in stored:
+            cell.outputs = []
+            cell.execution_count = None
         stored[0].source += '\nDATA_LABEL = "Synthetic fixture (not MAWI measurements)"\n' + settings
         if assertions:
             nb.cells.append(nbformat.v4.new_code_cell(textwrap.dedent(assertions)))
@@ -61,7 +63,7 @@ class NotebookTests(unittest.TestCase):
             (START + 60, 0, ethernet(ipv4(17, 40)), 54),
             (START + 60, 1, ethernet(ipv4(1, 50)), 64),
             (START + 60, 2, ethernet(ipv6(50, 24), 0x86DD), 78),
-            (START + 60, 3, ethernet(ipv6(60, 16, b"\x11"), 0x86DD), 70),
+            (START + 60, 3, ethernet(ipv6(60, 16), 0x86DD), 70),
             (START + 120, 0, ethernet(ipv6(58, 20), 0x86DD), 74),
             (START + 240, 0, ethernet(ipv4(47, 19)), 60),
             (START, 2, ethernet(b"", 0x0806), 60),

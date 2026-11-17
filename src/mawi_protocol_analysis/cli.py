@@ -108,7 +108,10 @@ def _manifest(source: Path, header: Header, size: int, mtime_ns: int) -> dict:
             "ipv4": "Outer IPv4 Protocol field, including in fragments",
             "ipv6": (
                 "Follow Hop-by-Hop, Routing, Destination Options, Fragment and AH. Stop at ESP or "
-                "another terminal number. For non-initial fragments only use an explicitly identified "
+                "another terminal number. A captured terminal Next Header is classified even if its "
+                "containing extension is truncated; retain the header issue separately. Reject known "
+                "invalid extension lengths; do not infer a terminal protocol from an incomplete chain. "
+                "For non-initial fragments only use an explicitly identified "
                 "terminal protocol; do not parse fragment contents as extension headers."
             ),
             "fragments": "IPv4 MF or nonzero offset; IPv6 Fragment header with M or nonzero offset. No reassembly.",

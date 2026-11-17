@@ -42,6 +42,8 @@ uv run --locked python -m unittest discover -s tests -v
 
 Ethernet II と VLAN タグ（0x8100、0x88a8、0x9100）を読み、IPv4は外側の Protocol、IPv6は Hop-by-Hop、Routing、Destination Options、Fragment、AHをたどった Next Header で分類します。ESPで探索を止め、GREやIPトンネルの内部は解析しません。番号は保持し、代表的な名称は [IANAの登録](https://www.iana.org/assignments/protocol-numbers/) を参照します。フラグメントは分類と重複する属性です。再構成は行わず、IPv6の後続フラグメントで拡張ヘッダをたどれない場合は判定不能とします。IPv6のatomic fragment（オフセット0かつM=0）はフラグメント件数に含めません。
 
+IPv6拡張ヘッダの全体が保存されていなくても、保存された正しい位置の Next Header が TCP・UDP・ESP などの終端プロトコルを直接示している場合は、その番号で集計します。Next Header の1バイトだけが取得できた場合も対象ですが、実際のTCP・UDPヘッダの取得や正常性まで確認したことは意味しません。切り詰めは `header_issue_reasons` の `ipv6_truncated_extension` と、CSVの `invalid_or_missing_header_packets` に記録します。この属性はプロトコル別件数と重複します。Next Header 自体が読めない場合や、さらに別の拡張ヘッダが続いて最終的な番号を確認できない場合は判定不能です。読み取れた拡張ヘッダ長が不正な場合も、従来どおり判定不能として記録します。
+
 対象外の時刻や、不正なレコードは除外理由を記録します。読み切れないレコードや未対応のファイル形式では、解析を中断します。キャプチャされたヘッダで判定できない場合は、その理由と取得できた通信量を保持します。IPv6 Jumbo Payload、その他の未対応拡張ヘッダ、Ethernet IEEE 802.3 LLC/SNAPには対応しません。トランスポートヘッダの妥当性やチェックサムは検証しません。
 
 公開統計の `frag` は独立行であり、本実装とは分類方法に差があります。MAWI公式統計やAguriのバイト数と直接比較する際は、使用したツールと設定で集計対象・バイト定義が一致することを確認してください。この観測区間の結果を、MAWI全期間やインターネット全体には一般化しません。

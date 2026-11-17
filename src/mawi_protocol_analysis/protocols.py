@@ -112,9 +112,10 @@ def _ipv6(data: bytes, start: int, captured_end: int, frame_end: int) -> Classif
         if offset + minimum > end:
             protocol_issue = header_issue = "ipv6_invalid_extension_length"
             break
-        if offset + 2 > captured_end:
+        if offset >= captured_end:
             protocol_issue = header_issue = "ipv6_truncated_extension"
             break
+        following = data[offset]
 
         if number == 44:
             if seen_fragment_header:
@@ -127,6 +128,8 @@ def _ipv6(data: bytes, start: int, captured_end: int, frame_end: int) -> Classif
                 non_initial = bool(fragment_field & 0xFFF8)
                 fragment = non_initial or bool(fragment_field & 1)
             size = 8
+        elif offset + 2 > captured_end:
+            size = None
         elif number == 51:
             size = (data[offset + 1] + 2) * 4
             if size % 8:
@@ -134,14 +137,20 @@ def _ipv6(data: bytes, start: int, captured_end: int, frame_end: int) -> Classif
                 break
         else:
             size = (data[offset + 1] + 1) * 8
-        if size < minimum or offset + size > end:
+        if size is not None and (size < minimum or offset + size > end):
             protocol_issue = header_issue = "ipv6_invalid_extension_length"
             break
-        if offset + size > captured_end:
-            protocol_issue = header_issue = "ipv6_truncated_extension"
+        if size is None or offset + size > captured_end:
+            # The observed Next Header can identify a terminal protocol even
+            # when the rest of this extension was not captured. Keep the
+            # header issue separately; never infer an unseen extension's Next Header.
+            header_issue = "ipv6_truncated_extension"
+            if following in _IPV6_EXTENSIONS or following in _UNSUPPORTED_IPV6_EXTENSIONS:
+                protocol_issue = header_issue
+            else:
+                number = following
             break
 
-        following = data[offset]
         if following == 0:
             protocol_issue = header_issue = "ipv6_misplaced_hop_by_hop"
             break

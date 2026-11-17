@@ -70,9 +70,44 @@ class PacketTests(unittest.TestCase):
     def test_ipv6_fragment_flags_are_counted_if_the_identifier_is_truncated(self):
         fragment_prefix = bytes((17, 0, 0, 1))
         packet = self.classify(ethernet(ipv6(44, 16, fragment_prefix), 0x86DD), 70)
-        self.assertEqual((packet.number, packet.ip_bytes), (None, 56))
+        self.assertEqual((packet.number, packet.ip_bytes), (17, 56))
         self.assertTrue(packet.fragment)
+        self.assertIsNone(packet.protocol_issue)
         self.assertEqual(packet.header_issue, "ipv6_truncated_extension")
+
+    def test_ipv6_truncated_extension_preserves_observed_terminal_protocol(self):
+        for extension in (0, 43, 44, 51, 60):
+            for terminal in (6, 17, 50, 58, 59, 222):
+                for saved in (1, 2, 4, 7):
+                    with self.subTest(extension=extension, terminal=terminal, saved=saved):
+                        prefix = bytes((terminal, 2 if extension == 51 else 0)) + bytes(14)
+                        frame = ethernet(ipv6(extension, 16, prefix[:saved]), 0x86DD)
+                        packet = self.classify(frame, 70)
+                        self.assertEqual((packet.number, packet.ip_bytes), (terminal, 56))
+                        self.assertIsNone(packet.protocol_issue)
+                        self.assertEqual(packet.header_issue, "ipv6_truncated_extension")
+
+    def test_ipv6_chain_can_end_in_a_truncated_extension_with_known_protocol(self):
+        hop = bytes((60, 0)) + bytes(6)
+        packet = self.classify(ethernet(ipv6(0, 24, hop + b"\x11"), 0x86DD), 78)
+        self.assertEqual((packet.number, packet.ip_bytes), (17, 64))
+        self.assertIsNone(packet.protocol_issue)
+        self.assertEqual(packet.header_issue, "ipv6_truncated_extension")
+
+    def test_ipv6_truncated_extension_without_terminal_stays_indeterminate(self):
+        for prefix in (b"", b"\x00", b"\x2b", b"\x2c", b"\x33", b"\x3c", b"\x87"):
+            with self.subTest(prefix=prefix):
+                packet = self.classify(ethernet(ipv6(60, 16, prefix), 0x86DD), 70)
+                self.assertIsNone(packet.number)
+                self.assertEqual(packet.protocol_issue, "ipv6_truncated_extension")
+                self.assertEqual(packet.header_issue, "ipv6_truncated_extension")
+
+    def test_ipv6_observed_terminal_does_not_hide_invalid_extension_length(self):
+        for extension, prefix in ((60, bytes((17, 2))), (51, bytes((17, 1)))):
+            with self.subTest(extension=extension):
+                packet = self.classify(ethernet(ipv6(extension, 16, prefix), 0x86DD), 70)
+                self.assertIsNone(packet.number)
+                self.assertEqual(packet.protocol_issue, "ipv6_invalid_extension_length")
 
     def test_ipv6_fragment_with_unavailable_extension_or_visible_terminal(self):
         for following, number in ((60, None), (17, 17)):
@@ -99,8 +134,9 @@ class PacketTests(unittest.TestCase):
         short = self.classify(ethernet(ipv4()[:9]), 54)
         self.assertEqual((short.kind, short.number, short.ip_bytes), ("ipv4", None, None))
         extension = self.classify(ethernet(ipv6(60, 16, b"\x11"), 0x86DD), 70)
-        self.assertEqual((extension.kind, extension.number, extension.ip_bytes), ("ipv6", None, 56))
-        self.assertEqual(extension.protocol_issue, "ipv6_truncated_extension")
+        self.assertEqual((extension.kind, extension.number, extension.ip_bytes), ("ipv6", 17, 56))
+        self.assertIsNone(extension.protocol_issue)
+        self.assertEqual(extension.header_issue, "ipv6_truncated_extension")
         padding = ethernet(ipv6(60, 4, bytes((17, 0)) + bytes(6)), 0x86DD)
         self.assertEqual(self.classify(padding, len(padding)).protocol_issue, "ipv6_invalid_extension_length")
 
@@ -144,7 +180,7 @@ class CLITests(unittest.TestCase):
     def test_counts_and_time_bins_reconcile_including_unclassified_records(self):
         v4 = ethernet(ipv4(length=120, fragment=1))
         v6 = ethernet(ipv6(17, 8), 0x86DD)
-        unknown_v6 = ethernet(ipv6(60, 16, b"\x11"), 0x86DD)
+        unknown_v6 = ethernet(ipv6(60, 16), 0x86DD)
         arp = ethernet(b"", 0x0806)
         bad_v4 = ethernet(ipv4(47, 19))
         result = self.run_capture(pcap([
@@ -197,6 +233,39 @@ class CLITests(unittest.TestCase):
             self.assertEqual(sum(by_group.values()), total)
             for row in counts:
                 self.assertEqual(by_group[row["category"], row["protocol_number"]], int(row[field]))
+
+    def test_truncated_extensions_count_under_known_protocols_and_retain_issues(self):
+        result = self.run_capture(pcap([
+            (START, 0, ethernet(ipv6(60, 16, b"\x11"), 0x86DD), 70),
+            (START, 1, ethernet(ipv6(51, 16, b"\x06\x02"), 0x86DD), 70),
+            (START + 60, 0, ethernet(ipv6(43, 16, b"\x32\x00"), 0x86DD), 70),
+            (START + 60, 1, ethernet(ipv6(60, 16, b"\x3c"), 0x86DD), 70),
+            (START + 120, 0, ethernet(ipv6(60, 16), 0x86DD), 70),
+        ]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = self.read_json("summary.json")
+        self.assertEqual(summary["included_packets"], 5)
+        self.assertEqual((summary["tcp_packets"], summary["udp_packets"],
+                          summary["non_tcp_udp_packets"], summary["ip_protocol_indeterminate_packets"]),
+                         (1, 1, 1, 2))
+        self.assertEqual(summary["unclassifiable_packets"], 2)
+        self.assertEqual(summary["protocol_issue_reasons"], {"ipv6_truncated_extension": 2})
+        self.assertEqual(summary["header_issue_reasons"], {"ipv6_truncated_extension": 5})
+        self.assertEqual(summary["truncated_capture_packets"], 5)
+        self.assertEqual(summary["invalid_or_missing_header_packets"], 5)
+        self.assertEqual(summary["ip_length_unavailable_packets"], 0)
+        counts = self.read_csv("protocol_counts.csv")
+        udp = next(row for row in counts if row["protocol_number"] == "17")
+        self.assertEqual((udp["packet_count"], udp["original_frame_bytes"], udp["ip_packet_bytes"]),
+                         ("1", "70", "56"))
+        self.assertEqual(udp["invalid_or_missing_header_packets"], "1")
+        self.assertAlmostEqual(float(udp["packet_ratio_overall"]), 0.2)
+        series = self.read_csv("protocol_timeseries_60s.csv")
+        for row in counts:
+            matching = [minute for minute in series if minute["protocol_number"] == row["protocol_number"]]
+            for field in ("packet_count", "original_frame_bytes", "ip_packet_bytes",
+                          "invalid_or_missing_header_packets"):
+                self.assertEqual(sum(int(minute[field]) for minute in matching), int(row[field]))
 
     def test_incomplete_or_unsupported_input_has_no_results(self):
         valid = pcap([(START, 0, ethernet(ipv4()), 54)])
