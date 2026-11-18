@@ -1,6 +1,8 @@
 """Read classic Ethernet PCAP records without losing their original lengths."""
 
 import gzip
+import hashlib
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from struct import Struct
@@ -42,6 +44,30 @@ class Record(NamedTuple):
 
 def open_capture(path: Path) -> BinaryIO:
     return gzip.open(path, "rb") if path.suffix.lower() == ".gz" else path.open("rb")
+
+
+class _HashingReader:
+    def __init__(self, stream, digest):
+        self.stream = stream
+        self.digest = digest
+
+    def read(self, size=-1):
+        data = self.stream.read(size)
+        self.digest.update(data)
+        return data
+
+
+@contextmanager
+def open_hashed_capture(path: Path):
+    """Hash file bytes and decompressed PCAP bytes during the same forward scan."""
+    file_hash, pcap_hash = hashlib.sha256(), hashlib.sha256()
+    with path.open("rb") as raw:
+        hashed = _HashingReader(raw, file_hash)
+        if path.suffix.lower() == ".gz":
+            with gzip.GzipFile(fileobj=hashed, mode="rb") as stream:
+                yield _HashingReader(stream, pcap_hash), file_hash, pcap_hash
+        else:
+            yield _HashingReader(hashed, pcap_hash), file_hash, pcap_hash
 
 
 class PcapReader:

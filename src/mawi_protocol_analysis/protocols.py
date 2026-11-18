@@ -32,16 +32,27 @@ def _missing(kind: str, reason: str) -> Classification:
 
 
 def classify_ethernet(data: bytes, orig_len: int, fcs_bytes: int = 0) -> Classification:
+    return _classify_ethernet(data, orig_len, fcs_bytes, False)[0]
+
+
+def classify_ethernet_with_endpoints(
+    data: bytes, orig_len: int, fcs_bytes: int = 0,
+) -> tuple[Classification, int | None, int | None]:
+    """The existing classification plus captured outer IPv4 integer endpoints."""
+    return _classify_ethernet(data, orig_len, fcs_bytes, True)
+
+
+def _classify_ethernet(data: bytes, orig_len: int, fcs_bytes: int, endpoints: bool):
     frame_end = orig_len - fcs_bytes
     captured_end = min(len(data), frame_end)
     # 最低14バイトのEthernetヘッダが必要
     if captured_end < 14:
-        return _missing("unknown", "ethernet_truncated_header")
+        return _missing("unknown", "ethernet_truncated_header"), None, None
     ethertype = (data[12] << 8) | data[13]
     start = 14
     while ethertype in _VLAN_TYPES:
         if captured_end < start + 4:
-            return _missing("unknown", "ethernet_truncated_vlan")
+            return _missing("unknown", "ethernet_truncated_vlan"), None, None
         ethertype = (data[start + 2] << 8) | data[start + 3]
         start += 4
 
@@ -50,18 +61,23 @@ def classify_ethernet(data: bytes, orig_len: int, fcs_bytes: int = 0) -> Classif
         if ethertype < 1536:
             reason = "ethernet_unsupported_802_3" if ethertype <= 1500 else "ethernet_invalid_type"
             if ethertype <= 1500:
-                return Classification("unknown", protocol_issue=reason, length_issue=reason)
-            return _missing("unknown", reason)
-        return Classification("non_ip")
+                return Classification("unknown", protocol_issue=reason, length_issue=reason), None, None
+            return _missing("unknown", reason), None, None
+        return Classification("non_ip"), None, None
 
     version = 4 if ethertype == 0x0800 else 6
     if captured_end <= start:
-        return _missing("unknown", "missing_ip_version")
+        return _missing("unknown", "missing_ip_version"), None, None
     if data[start] >> 4 != version:
-        return _missing("unknown", "ip_version_ethertype_mismatch")
+        return _missing("unknown", "ip_version_ethertype_mismatch"), None, None
     if version == 4:
-        return _ipv4(data, start, captured_end, frame_end)
-    return _ipv6(data, start, captured_end, frame_end)
+        packet = _ipv4(data, start, captured_end, frame_end)
+        # Fixed endpoint offsets require a captured complete base header and a
+        # valid IHL. Never treat missing bytes as address zero.
+        if endpoints and captured_end >= start + 20 and (data[start] & 15) >= 5:
+            return packet, int.from_bytes(data[start + 12:start + 16], "big"), int.from_bytes(data[start + 16:start + 20], "big")
+        return packet, None, None
+    return _ipv6(data, start, captured_end, frame_end), None, None
 
 
 def _ipv4(data: bytes, start: int, captured_end: int, frame_end: int) -> Classification:

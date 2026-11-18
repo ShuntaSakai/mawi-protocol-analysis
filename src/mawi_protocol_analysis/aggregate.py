@@ -5,7 +5,8 @@ from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta, timezone
 
 from .pcap import PcapReader
-from .protocols import Classification, classify_ethernet
+from .prefixes import PrefixMatcher, PrefixSelection
+from .protocols import Classification, classify_ethernet, classify_ethernet_with_endpoints
 
 JST = timezone(timedelta(hours=9), "JST")
 START = datetime(2026, 4, 8, 14, tzinfo=JST)
@@ -92,6 +93,19 @@ class Analysis:
         self.length_issues: Counter[str] = Counter()
         self.header_issues: Counter[str] = Counter()
 
+    def count(self, packet: Classification, orig: int, truncated: bool, minute: int) -> None:
+        key = (packet.kind, packet.number)
+        self.groups[key].count(packet, orig, truncated)
+        self.bins[minute][key].count(packet, orig, truncated)
+        # An independent total catches dropped or doubled protocol groups.
+        self.overall.count(packet, orig, truncated)
+        if packet.protocol_issue:
+            self.protocol_issues[packet.protocol_issue] += 1
+        if packet.length_issue:
+            self.length_issues[packet.length_issue] += 1
+        if packet.header_issue:
+            self.header_issues[packet.header_issue] += 1
+
     def populations(self) -> dict[str, Totals]:
         result = {"overall": self.overall, "ipv4": Totals(), "ipv6": Totals(),
                   "non_ip": Totals(), "unknown": Totals()}
@@ -172,7 +186,53 @@ class Analysis:
         }
 
 
-def analyze(reader: PcapReader) -> Analysis:
+class PrefixAnalysis:
+    """Bounded counters for native populations and their deduplicated union."""
+
+    def __init__(self, selection: PrefixSelection):
+        self.selection = selection
+        self.matcher = PrefixMatcher(selection)
+        self.prefix_ids = tuple(str(network) for network in selection.networks)
+        self.scopes = {name: Analysis() for name in
+                       ("overall_ipv4", *self.prefix_ids, "selected_union")}
+        self.address_unavailable = Totals()
+
+    def count(self, packet: Classification, src: int | None, dst: int | None,
+              orig: int, truncated: bool, minute: int) -> None:
+        if packet.kind != "ipv4":
+            return
+        self._count_scope("overall_ipv4", packet, orig, truncated, minute)
+        if src is None or dst is None:
+            self.address_unavailable.count(packet, orig, truncated)
+        matches = self.matcher.match(src, dst)
+        if matches:
+            self._count_scope("selected_union", packet, orig, truncated, minute)
+        while matches:
+            bit = matches & -matches
+            self._count_scope(self.prefix_ids[bit.bit_length() - 1], packet, orig, truncated, minute)
+            matches ^= bit
+
+    def _count_scope(self, name, packet, orig, truncated, minute):
+        scope = self.scopes[name]
+        scope.records_read += 1
+        scope.count(packet, orig, truncated, minute)
+
+    def validate(self, overall: Analysis) -> None:
+        for scope in self.scopes.values():
+            scope.validate()
+        ipv4 = self.scopes["overall_ipv4"]
+        if ipv4.overall != overall.populations()["ipv4"]:
+            raise ValueError("prefix Overall IPv4 differs from existing Overall analysis")
+        if ipv4.groups != {key: total for key, total in overall.groups.items() if key[0] == "ipv4"}:
+            raise ValueError("prefix Overall IPv4 protocol counters differ")
+        union = self.scopes["selected_union"].overall
+        for name in self.prefix_ids:
+            for field in COUNTER_FIELDS:
+                if not getattr(self.scopes[name].overall, field) <= getattr(union, field) <= getattr(ipv4.overall, field):
+                    raise ValueError("prefix/union/Overall containment totals differ")
+
+
+def analyze(reader: PcapReader, *, prefixes: PrefixAnalysis | None = None) -> Analysis:
     result = Analysis()
     fcs_bytes = reader.header.declared_fcs_bytes or 0
     for sec, incl, orig, data, issue in reader:
@@ -185,18 +245,15 @@ def analyze(reader: PcapReader) -> Analysis:
             continue
 
         minute = (sec - START_EPOCH) // INTERVAL_SECONDS
-        packet = classify_ethernet(data, orig, fcs_bytes)
-        key = (packet.kind, packet.number)
+        if prefixes is None:
+            packet = classify_ethernet(data, orig, fcs_bytes)
+        else:
+            packet, src, dst = classify_ethernet_with_endpoints(data, orig, fcs_bytes)
         truncated = incl < orig
-        result.groups[key].count(packet, orig, truncated)
-        result.bins[minute][key].count(packet, orig, truncated)
-        # Count independently so that validation can catch dropped or doubled groups.
-        result.overall.count(packet, orig, truncated)
-        if packet.protocol_issue:
-            result.protocol_issues[packet.protocol_issue] += 1
-        if packet.length_issue:
-            result.length_issues[packet.length_issue] += 1
-        if packet.header_issue:
-            result.header_issues[packet.header_issue] += 1
+        result.count(packet, orig, truncated, minute)
+        if prefixes is not None:
+            prefixes.count(packet, src, dst, orig, truncated, minute)
     result.validate()
+    if prefixes is not None:
+        prefixes.validate(result)
     return result

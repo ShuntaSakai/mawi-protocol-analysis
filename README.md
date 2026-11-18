@@ -72,3 +72,65 @@ uv run --locked --extra notebook jupyter notebook notebook/01_overall_protocol_d
 番号別の表に加え、TCP（6）・UDP（17）・非TCP/UDPの3分類について、両指標の変動幅を比較するスライド用要約表と、最大・最小・極値時刻の詳細表を表示します。非TCP/UDPは、番号を判定できたIPパケットのうち6・17以外です。区間ごとのカウンタを合算してから構成比の極値を求め、個別プロトコルの変動幅は合算しません。判定不能IPは分母にのみ含まれるため、3分類の構成比の合計が100%未満になる場合があります。
 
 保存時は同じ新規ディレクトリに `category_ratio_variation_60s.csv`（3分類の最大・最小・幅）と `category_ratio_variation_60s_details.csv`（極値時刻・有効/未定義区間数）を追加し、`metadata.json` に分類の定義と追加CSV名を記録します。既存の番号別CSVの列・行は変更しません。3分類も計算・CSVはフル精度、表示だけ小数点以下2桁で、分母0は極値の対象外です。
+
+## 選定済みnative PrefixとOverall IPv4の比較
+
+既存の選定台帳を `--prefixes` で指定すると、同じPCAPを1回だけ走査して、Overall IPv4・各native Prefix・重複排除した `selected_union` を同時に集計します。非TCP/UDPのフロー再構成、GRE/ESPの内部展開、フラグメント再構成、scan除外は行いません。選定元がscan除外用runでも、今回はそのCIDR集合に対する全有効IPv4パケットを対象にします。
+
+### 外部台帳と来歴
+
+18件のCIDR・元の順序・真正な選定元は、この実装では確定していません。`scan_source_driven_removal` を自動的に選定元とは扱いません。研究室PC上の候補runの `run_manifest.json`・`prefixes.csv`・`flow_prefix_membership.csv` と当時のNotebookを照合し、native集合・表示順序・選定条件・Agurim引数・入力ハッシュを確認してください。
+
+入力CSVには `prefix` 列が必要です。`selected_for_analysis` 列があれば `True`/`1` の行だけを使用し、`False`/`0` は除きます。列がなければ全行が選定済みであるという外部入力契約です。選択済み行を**ファイル順**で使用します。Notebookで別の順序を使っていた場合は、その順序を確認した外部台帳を用意してください。`analysis_scope` 列がある場合は選択済み行が `native` である必要があります。`prefix_order` などの別列での並べ替えは行いません。
+
+正規形のIPv4 CIDR（`/24`以上）のみを受け取り、ホストビットを含むCIDR、重複、件数不一致は拒否します。CIDRの補正・新規選定・normalized `/24`化はしません。親子の包含関係はそのまま残しmanifestに記録します。既定の件数は18で、合成fixtureなど別の契約では `--expected-prefix-count` で明示できます。`normalized_prefix_24` 列は使用しません。CSV上の宣言だけではnativeの真正性を証明できません。
+
+```sh
+# SELECTED_RUNには、当時のNotebookと照合したrunの絶対パスを指定します。
+SELECTED_RUN=/path/to/verified-run
+uv run --locked mawi-protocol-analysis /path/to/202604081400.pcap.gz \
+  --prefixes "$SELECTED_RUN/prefixes.csv" \
+  --selection-manifest "$SELECTED_RUN/run_manifest.json" \
+  --selection-config /path/to/original-config.yaml \
+  --selection-membership "$SELECTED_RUN/flow_prefix_membership.csv"
+```
+
+研究室PCにアクセスできず、固定済みの外部台帳だけがある場合も開発・集計できます。
+
+```sh
+uv run --locked mawi-protocol-analysis /path/to/202604081400.pcap.gz \
+  --prefixes /path/to/externally-confirmed-native-prefixes.csv
+```
+
+選定元の3オプションは省略可能です。manifestと設定は内容・SHA-256を記録し、設定が保存済みmanifestのテキストと違う場合は拒否します。membershipは大きいためコピーせず、ファイルのSHA-256のみ記録します。membershipの各行やflowの所属の再検証は行いません。元manifestに記録されたartifact・cache・Agurimの来歴は内容をそのまま保持しますが、存在しない記録は補いません。
+
+PCAPのファイル本体と展開後PCAPのSHA-256を解析中に計算します。選定元manifestに入力SHA-256があれば、どちらに一致したかを記録し、不一致なら結果を公開しません。ハッシュがなければ入力同一性は保留です。歴史的な18件の真正性・順序の照合は自動では証明できないため、`historical_selection_verification` は `pending_external_audit` とします。ハッシュ一致や合成テスト成功を実データ検証の成功と解釈しないでください。
+
+### 出力と集計定義
+
+保存先は `results/202604081400/prefix_protocol_distribution/` です。`--output-root` で親ディレクトリを変更できます。既存Overallの4ファイルは変更せず、既存のPrefix出力先も上書きしません。ステージングディレクトリで全ファイルを書いてから、ディレクトリをrenameして公開します。
+
+| ファイル | 内容 |
+| --- | --- |
+| `selected_prefixes.csv` | 保存順序（1始まり）、native CIDR、入力CSV行番号 |
+| `prefix_protocol_counts.csv` | Overall IPv4・各Prefix・unionの全観測番号別カウンタと構成比。判定不能は空の番号と独立分類 |
+| `prefix_summary.csv` | 各集合の総量・IP長取得状況・TCP／UDP／非TCP・UDP／判定不能の排他的4分類。列名は `tcp_*`、`udp_*`、`non_tcp_udp_*`、`indeterminate_*` |
+| `prefix_protocol_timeseries_60s.csv` | 同じ集合・観測番号ごとの15個の半開区間。分母は各区間内の集合全体 |
+| `summary.json` | 各集合の総量、期間、取得不能理由、アドレス取得不能IPv4の総量、既存Overall相当の `overall_analysis` |
+| `manifest.json` | PCAP・選定元・設定・コードのハッシュ、実行環境、集計定義、包含関係、検証状態、出力CSVのハッシュ |
+
+所属は、完全な外側IPv4ベースヘッダと有効なIHLが取得できるパケットについて `src_ip in Prefix OR dst_ip in Prefix` です。同一Prefixでは一度だけ数え、異なるPrefixでは重複計上できます。アドレス取得不能なIPv4はOverall IPv4に残し、Prefixには所属させません。`selected_union` はどれかのPrefixに一致したパケットを一度だけ数えるため、個別Prefixの単純合算とは異なります。フラグメントはプロトコル分類と重複する属性です。
+
+構成比の分母は各集合の**全IPv4パケット数・対応するバイト数**です。TCPは6、UDPは17、非TCP/UDPは既知の6・17以外であり、プロトコル判定不能は別分類です。`original_frame_bytes` は `orig_len`、`ip_packet_bytes` は取得できたIPv4 Total Lengthの合計です。`incl_len` は通信量に使いません。IP長の取得不能はプロトコル判定不能と別に数えます。分母0はCSV空欄・JSON `null` です。全番号はCSVに残し、Othersへの統合は可視化時だけ行います。
+
+### Prefix Notebookと検証
+
+```sh
+uv sync --locked --extra notebook
+uv run --locked --extra notebook jupyter notebook notebook/02_prefix_protocol_distribution.ipynb
+uv run --locked --extra notebook python -m unittest discover -s tests -v
+```
+
+[Prefix Notebook](notebook/02_prefix_protocol_distribution.ipynb) は6ファイルだけを読み、パケット構成比・バイト構成比・非TCP/UDP割合とOverallとの差（pp）・構成比ヒートマップ・上位Prefixの非TCP/UDP番号詳細を表示します。総量と取得不能件数も表示します。Prefix順序・プロトコル色・分母を共通化し、主要番号・Others閾値・バイト指標・詳細表示件数を冒頭セルで設定できます。CSVのチェックサムと総量・番号別・時系列の整合性を確認してから描画します。Notebookには画像や実行結果を保存していません。
+
+合成PCAPのテストは所属・包含・重複・プロトコル・VLAN・フラグメント・切り詰め・時間境界・総量・比率・来歴・公開失敗・既存Overall回帰とNotebook描画を検証します。**実データによる18件の照合とOverall再計算は未検証**です。実データが利用可能になったら、新しい `summary.json` の `overall_analysis.populations.ipv4` と既存Overallの `summary.json` の `populations.ipv4` を比較してください。生成バージョン・入力SHA-256・分類定義が違えば先に差を調査し、数値を合わせる目的で定義を変更しないでください。
