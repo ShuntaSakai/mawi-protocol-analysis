@@ -148,6 +148,79 @@ class PrefixPlotTests(unittest.TestCase):
                 orders.append(expected)
         self.assertNotEqual(*orders)
 
+    def test_difference_labels_include_sign_units_and_skip_undefined(self):
+        ns, plt, np = self.ns, self.plt, self.np
+        for scope, ratio in zip(ns["prefix_order"][:3], (.05, 0, .03)):
+            mask = ns["counts"]["scope"].eq(scope)
+            for metric in ns["MEASURES"]:
+                non_tcp = mask & ns["counts"]["protocol"].eq("222")
+                tcp = mask & ns["counts"]["protocol"].eq("6")
+                old = ns["counts"].loc[non_tcp, metric].iloc[0]
+                new = ns["totals"].loc[scope, metric] * ratio
+                ns["counts"].loc[non_tcp, metric] = new
+                ns["counts"].loc[tcp, metric] += old - new
+        with patch.object(plt, "show"), patch.object(plt, "close"):
+            self.run_cell(8)
+        self.assertEqual(ns["delta_label"](-.001), "0.00 pp")
+        self.assertEqual(ns["delta_label"](3.215), "+3.21 pp")
+        self.assertEqual(ns["delta_label"](np.nan), "")
+        self.assertEqual(ns["delta_label"](np.inf), "")
+        fig = ns["fig"]
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        for ax, metric in zip(ns["axes"], ("packet_count", ns["BYTE_METRIC"])):
+            expected = [ns["delta_label"](v) for v in ns["plot_comparison"][f"{metric}_delta_pp"]]
+            self.assertEqual([text.get_text() for text in ax.texts], expected)
+            self.assertIn("+2.00 pp", expected)
+            self.assertIn("-3.00 pp", expected)
+            self.assertIn("0.00 pp", expected)
+            self.assertEqual(expected.count(""), 1)
+            boxes = [text.get_window_extent(renderer) for text in ax.texts if text.get_text()]
+            for i, box in enumerate(boxes):
+                self.assertTrue(ax.bbox.contains(box.x0, box.y0))
+                self.assertTrue(ax.bbox.contains(box.x1, box.y1))
+                self.assertFalse(any(box.overlaps(other) for other in boxes[i + 1:]))
+                for tick in ax.get_yticklabels():
+                    self.assertFalse(box.overlaps(tick.get_window_extent(renderer)))
+
+    def test_heatmap_labels_cover_all_nonzero_cells_and_skip_zero_undefined(self):
+        ns, plt, pd, np = self.ns, self.plt, self.pd, self.np
+        order = ns["plot_scope_order"][:4]
+        matrix = pd.DataFrame([[0, .001, .01, 99.989], [3, 2, 95, 0],
+                               [0, 0, 0, 0], [np.nan] * 4],
+                              index=order, columns=ns["plot_order"])
+        ns["plot_scope_order"] = order
+        ns["shown_values"] = lambda metric: matrix
+        ns["percent"] = lambda values, metric: values
+        expected = {(1, 0): "<0.01%", (2, 0): "0.01%", (3, 0): "99.99%",
+                    (0, 1): "3.00%", (1, 1): "2.00%", (2, 1): "95.00%"}
+        for metric in ("packet_count", "original_frame_bytes", "ip_packet_bytes"):
+            with self.subTest(metric=metric), patch.object(plt, "show"), patch.object(plt, "close"):
+                ns["HEATMAP_METRIC"] = metric
+                self.run_cell(10)
+                ax, fig = ns["ax"], ns["fig"]
+                fig.canvas.draw()
+                renderer = fig.canvas.get_renderer()
+                self.assertEqual({text.get_position(): text.get_text() for text in ax.texts}, expected)
+                self.assertEqual(ns["heatmap_value_label"](0), "")
+                self.assertEqual(ns["heatmap_value_label"](np.nan), "")
+                self.assertEqual(ns["heatmap_value_label"](np.inf), "")
+                self.assertEqual(ns["heatmap_value_label"](100), "100.00%")
+                self.assertEqual({text.get_color() for text in ax.texts}, {"black", "white"})
+                boxes = []
+                for text in ax.texts:
+                    column, row = text.get_position()
+                    x0, y0 = ax.transData.transform((column - .5, row + .5))
+                    x1, y1 = ax.transData.transform((column + .5, row - .5))
+                    box = text.get_window_extent(renderer)
+                    self.assertGreaterEqual(box.x0, x0)
+                    self.assertLessEqual(box.x1, x1)
+                    self.assertGreaterEqual(box.y0, y0)
+                    self.assertLessEqual(box.y1, y1)
+                    boxes.append(box)
+                for i, box in enumerate(boxes):
+                    self.assertFalse(any(box.overlaps(other) for other in boxes[i + 1:]))
+
     def test_overview_order_and_ranking_selection_is_unchanged(self):
         ns, plt = self.ns, self.plt
         with patch.object(plt, "show") as show:
