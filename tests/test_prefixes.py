@@ -290,7 +290,12 @@ OTHERS_THRESHOLD_PCT = None
             assert set(plot_order) == {"6", "Indeterminate", "Others"}
             assert "222" in set(counts["protocol"])
             assert "222" not in plot_order
-            assert heatmap_shares.index.tolist() == scope_order
+            assert plot_scope_order == ["overall_ipv4", "192.0.2.0/24", "192.0.2.128/25", "203.0.113.0/24"]
+            assert packet_shares.index.tolist() == plot_scope_order
+            expected_byte_prefixes = sorted(prefix_order, key=lambda p: -totals.loc[p, BYTE_METRIC])
+            assert byte_shares.index.tolist() == ["overall_ipv4", *expected_byte_prefixes]
+            assert heatmap_shares.index.tolist() == plot_scope_order
+            assert plot_comparison.index.tolist() == plot_prefix_order
             assert detail_prefixes == prefix_order[:2]
             assert set(detail_table["protocol_number"]) == {1, 222}
             for metric in MEASURES:
